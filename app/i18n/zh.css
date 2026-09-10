@@ -1,0 +1,75 @@
+/* 中文排版微调：仅在 html[lang=zh] 时生效，英文模式零影响。 */
+html[lang='zh'] {
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', system-ui, sans-serif;
+}
+
+/* 中文为全角字，原文的负字距会造成挤压 */
+html[lang='zh'] h1 {
+  font-size: 34px;
+  letter-spacing: -0.4px;
+}
+
+html[lang='zh'] .eyebrow {
+  letter-spacing: 0.12em;
+}
+
+html[lang='zh'] .structure-title {
+  letter-spacing: -0.2px !important;
+  text-transform: none !important;
+}
+
+html[lang='zh'] .search-result-name {
+  text-transform: none;
+}
+
+html[lang='zh'] .scene-caption {
+  letter-spacing: 0.1em;
+}
+
+html[lang='zh'] .identity-meta,
+html[lang='zh'] .panel-foot,
+html[lang='zh'] .studio-footer {
+  letter-spacing: 0.02em;
+}
+
+html[lang='zh'] .about-copy p {
+  text-align: justify;
+}
+
+/* 系统名在中文下更短，避免与计数挤在一起 */
+html[lang='zh'] .system-count {
+  margin-left: 10px;
+}
+
+html[lang='zh'] .lang-switch {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 767px) {
+  html[lang='zh'] h1 {
+    font-size: 28px;
+    letter-spacing: -0.3px;
+  }
+}
+
+/* 返回上级按钮：通用功能，中英模式通用，不挂在 html[lang] 下 */
+.detail-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #788694;
+  padding: 2px 0;
+  min-height: 30px;
+  width: fit-content;
+}
+
+.detail-back:hover {
+  color: #26313c;
+}
+
+.detail-back svg {
+  flex-shrink: 0;
+}
