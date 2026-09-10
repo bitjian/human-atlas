@@ -1,7 +1,11 @@
 import {useCallback, useEffect, useState} from 'react';
 import type {SystemId} from '../anatomy';
 import {MESSAGES, type MessageKey} from './messages';
-import {ANATOMY_ZH, EXPLANATIONS_ZH, SYSTEM_TEXT_ZH} from './anatomy-zh';
+import {ANATOMY_ZH as ANATOMY_ZH_MANUAL, EXPLANATIONS_ZH, SYSTEM_TEXT_ZH} from './anatomy-zh';
+import {TERMS_ZH} from './terms-zh';
+
+// 手写词条优先，自动生成的长尾术语兜底（未收录的仍回退英文原名）
+const ANATOMY_ZH: Record<string, string> = {...TERMS_ZH, ...ANATOMY_ZH_MANUAL};
 
 export type Lang = 'en' | 'zh';
 export type Vars = Record<string, string | number>;
