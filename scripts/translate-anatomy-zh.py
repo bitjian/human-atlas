@@ -345,9 +345,21 @@ have = set(re.findall(r"(F[JM]A?\d+):", src.split('export const ANATOMY_ZH')[1])
 entries = [(p['id'], p['name']) for p in atlas['parts']] + [(c['id'], c['name']) for c in atlas['concepts']]
 todo = [(i, n) for i, n in entries if i not in have]
 
-ok, fail = [], []
+# 可选：Wikidata 权威译名（先跑 scripts/fetch-wikidata-zh.py 生成），优先级高于规则生成
+WIKI = {}
+wiki_path = os.path.join(ROOT, 'app/i18n/wikidata-zh.json')
+if os.path.exists(wiki_path):
+    WIKI = json.load(open(wiki_path))
+    print('已加载 Wikidata 中文标签 %d 条（权威译名优先）' % len(WIKI))
+
+ok, fail, diffs = [], [], []
 for i, n in todo:
     zh = translate(n)
+    wiki = WIKI.get(i) if i.startswith('FMA') else None
+    if wiki:
+        if zh and wiki != zh:
+            diffs.append((i, n, zh, wiki))   # 记录差异，便于发现系统性误译
+        zh = wiki                            # 权威译名覆盖规则译名
     (ok if zh else fail).append((i, n, zh) if zh else (i, n))
 
 print('可翻译 %d / %d (%.0f%%)，放弃 %d' % (len(ok), len(todo), len(ok) / len(todo) * 100, len(fail)))
@@ -355,6 +367,11 @@ print('\n=== 随机样本 60 条 ===')
 random.seed(11)
 for i, n, zh in random.sample(ok, min(60, len(ok))):
     print('%-48s -> %s' % (n, zh))
+if diffs:
+    print('\n=== 规则译名 vs Wikidata 权威译名 差异（前 40 条，供人工审核） ===')
+    for i, n, zh, wiki in diffs[:40]:
+        print('%-40s 规则:%-14s 权威:%s' % (n, zh, wiki))
+
 import collections
 print('\n=== 未识别词 top 90（按出现次数） ===')
 for w, c in collections.Counter(MISSING).most_common(90):
