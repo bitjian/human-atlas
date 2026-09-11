@@ -36,6 +36,11 @@ ORD = {'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eight
        'eleventh', 'twelfth'}
 SIDE = {'left', 'right', 'bilateral'}
 
+# 内脏器官：中文解剖学命名中方位词后置（right gastric artery → 胃右动脉），
+# 与体壁/成对器官血管相反（right renal artery → 右肾动脉）。
+# 只收录方位词固定后置的器官，避免误伤 "accessory splenic artery → 副脾动脉" 一类。
+VISCUS = {'gastric', 'hepatic', 'mesenteric', 'gastro-epiploic', 'gastroepiploic', 'gastro-omental'}
+
 EXTRA = {
 'toe': ('足趾', 'n'), 'toes': ('足趾', 'n'), 'finger': ('指', 'n'), 'fingers': ('指', 'n'),
 'thumb': ('拇指', 'n'), 'great toe': ('拇趾', 'n'), 'little toe': ('小趾', 'n'),
@@ -107,6 +112,8 @@ EXTRA = {
 'cornu': ('角', 'n'), 'atlas': ('寰椎', 'n'), 'axis': ('枢椎', 'n'), 'carpus': ('腕', 'n'),
 'tarsus': ('跗', 'n'), 'metatarsus': ('跖', 'n'), 'metacarpus': ('掌', 'n'),
 'superior oblique': ('上斜肌', 'm'), 'inferior oblique': ('下斜肌', 'm'),
+# 更长的短语优先匹配，避免眼外肌名误伤 "oblique part"（斜部）
+'inferior oblique part': ('下斜部', 'n'), 'superior oblique part': ('上斜部', 'n'),
 'external oblique': ('外斜肌', 'm'), 'internal oblique': ('内斜肌', 'm'),
 'crico-arytenoid': ('环杓肌', 'm'), 'arytenoideus': ('杓肌', 'm'),
 'hallux': ('拇趾', 'n'), 'pollex': ('拇指', 'n'), 'clavicula': ('锁骨', 'n'),
@@ -228,6 +235,9 @@ EXTRA = {
 'suprahyoid': ('舌骨上', 'loc'), 'prevertebral': ('椎前', 'loc'), 'suboccipital': ('枕下', 'loc'),
 'extra-ocular': ('眼外', 'loc'), 'extrahepatic': ('肝外', 'mod'), 'nonskeletal': ('非骨骼', 'mod'),
 'loose': ('疏松', 'mod'), 'mesentery': ('肠系膜', 'n'),
+'stria terminalis': ('终纹', 'n'), 'plantar interosseous': ('足底骨间肌', 'm'),
+'dorsal interosseous': ('背侧骨间肌', 'm'), 'palmar interosseous': ('掌侧骨间肌', 'm'),
+'left hepatic duct': ('左肝管', 'n'), 'right hepatic duct': ('右肝管', 'n'),
 'coeliac': ('腹腔', 'loc'), 'ii': ('Ⅱ', 'mod'), 'iii': ('Ⅲ', 'mod'), 'iv': ('Ⅳ', 'mod'),
 'v': ('Ⅴ', 'mod'), 'vi': ('Ⅵ', 'mod'), 'vii': ('Ⅶ', 'mod'), 'viii': ('Ⅷ', 'mod'), 'ix': ('Ⅸ', 'mod'),
 'biliary tree': ('胆管树', 'n'), 'hepatic biliary tree': ('肝胆管树', 'n'),
@@ -276,6 +286,8 @@ def tokenize(s):
                         t = 'side'
                     elif L == 1 and raw in ORD:
                         t = 'ord'
+                    elif any(v in VISCUS for v in variants(raw)):
+                        t = 'viscus'
                     elif any(v in LOC for v in variants(raw)):
                         t = 'loc'
                     found = ((r[0], t), L)
@@ -300,8 +312,14 @@ def simple(s):
     if not toks:
         return None
     g = lambda kinds: ''.join(x[0] for x in toks if x[1] in kinds)
-    out = (g({'side'}) + g({'ord'}) + g({'loc'})
-           + ''.join(x[0] for x in toks if x[1] not in ('side', 'ord', 'loc', 'm')) + g({'m'}))
+    mid = ''.join(x[0] for x in toks if x[1] not in ('side', 'ord', 'loc', 'viscus', 'm'))
+    vis = g({'viscus'})
+    if vis and 'duct' not in s:
+        # 内脏血管：器官名在前，方位词后置（胃右动脉 / 肠系膜下静脉 / 肝固有动脉）
+        # 管道类例外，保持前置：left hepatic duct → 左肝管（不是"肝左管"）
+        out = vis + g({'side'}) + g({'ord'}) + g({'loc'}) + mid + g({'m'})
+    else:
+        out = g({'side'}) + g({'ord'}) + g({'loc'}) + mid + g({'m'})
     return dedupe(out)
 
 def tr(s):
