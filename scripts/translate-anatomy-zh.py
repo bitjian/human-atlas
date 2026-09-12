@@ -241,6 +241,35 @@ EXTRA = {
 'coeliac': ('腹腔', 'loc'), 'ii': ('Ⅱ', 'mod'), 'iii': ('Ⅲ', 'mod'), 'iv': ('Ⅳ', 'mod'),
 'v': ('Ⅴ', 'mod'), 'vi': ('Ⅵ', 'mod'), 'vii': ('Ⅶ', 'mod'), 'viii': ('Ⅷ', 'mod'), 'ix': ('Ⅸ', 'mod'),
 'biliary tree': ('胆管树', 'n'), 'hepatic biliary tree': ('肝胆管树', 'n'),
+# 第七轮：修正系统性误译（与 Wikidata 权威译名差异分析后补充，2026-09-12）
+'portion of tissue': ('组织', 'n'), 'portion of connective tissue': ('结缔组织', 'n'),
+# 脑室 vs 心室：ventricle 在心脏语境译「心室」，在脑语境译「脑室」，整词锁定
+'third ventricle': ('第三脑室', 'n'), 'fourth ventricle': ('第四脑室', 'n'),
+'lateral ventricle': ('侧脑室', 'n'), 'ventricular system of brain': ('脑室系统', 'n'),
+'ventricular system': ('脑室系统', 'n'),
+# digit 在足部译「趾」、在手部译「指」，手部肌名整词锁定
+'flexor digitorum superficialis': ('指浅屈肌', 'm'),
+'flexor digitorum profundus': ('指深屈肌', 'm'), 'extensor digitorum': ('伸指肌', 'm'),
+# 部位+方位+肌 的标准语序（规则输出成「大腰肌 / 内侧股肌」）
+'psoas major': ('腰大肌', 'm'), 'psoas minor': ('腰小肌', 'm'),
+'vastus medialis': ('股内侧肌', 'm'), 'vastus lateralis': ('股外侧肌', 'm'),
+'vastus intermedius': ('股中间肌', 'm'),
+'lamina terminalis': ('终板', 'n'),
+# proper 单独归一类（kind='pre'）：中文「固有」要贴近中心名词，见 simple()
+'proper': ('固有', 'pre'),
+# 足部 digital 应作「趾」（同一处 指/趾 歧义，见上）
+'plantar digital arteries proper': ('足底趾固有动脉', 'n'),
+'common plantar digital arteries': ('足底趾总动脉', 'n'),
+'plantar digital veins': ('足底趾静脉', 'n'),
+# 规则原本无法翻译、且 Wikidata 给出的译名也不准确的基础概念（补齐规则）
+'pons': ('脑桥', 'n'), 'alimentary system': ('消化系统', 'n'),
+'integument': ('体被', 'n'), 'human body': ('人体', 'n'),
+'genital system': ('生殖系统', 'n'), 'cerebral arterial circle': ('大脑动脉环', 'n'),
+# 肌名兼作修饰语时不能带「肌」：韧带/膜的中心词必须收尾
+# （裸词 cricothyroid/stylohyoid 仍译「环甲肌/茎突舌骨肌」，故只锁整条短语）
+'stylohyoid ligament': ('茎突舌骨韧带', 'n'),
+'cricothyroid ligament': ('环甲韧带', 'n'),
+'median cricothyroid ligament': ('正中环甲韧带', 'n'),
 }
 
 W2 = {k: v for k, v in W.items() if k not in DROP}
@@ -311,18 +340,43 @@ def simple(s):
     toks = tokenize(s)
     if not toks:
         return None
+    # "X proper" 的中文语序是「X 的固有 + 中心词」，但**仅当中心词是血管**时成立：
+    #   hepatic artery proper → 肝固有动脉 ✓ / proper palmar digital artery → 指掌侧固有动脉 ✓
+    # 对非血管中心词必须保持原序，否则会误伤：
+    #   myocardium of right ventricle proper → 右心室固有心肌（不是"右固有心室心肌"）
+    # ⚠ 也不能推广到所有修饰语：拇长屈肌 / 肋长提肌 都依赖原始词序。
+    if len(toks) >= 2 and toks[-1][1] == 'pre':
+        pre = toks.pop()
+        for j in range(len(toks) - 1, -1, -1):
+            if toks[j][1] not in ('side', 'ord', 'loc', 'viscus', 'm', 'mod', 'pre'):
+                if toks[j][0] in ('动脉', '静脉'):      # 仅血管类中心词前移
+                    toks.insert(j, pre)
+                else:
+                    toks.append(pre)
+                break
+        else:
+            toks.append(pre)
     g = lambda kinds: ''.join(x[0] for x in toks if x[1] in kinds)
     mid = ''.join(x[0] for x in toks if x[1] not in ('side', 'ord', 'loc', 'viscus', 'm'))
     vis = g({'viscus'})
+    muscle = g({'m'})
+    # 词表里 "interspinalis" 已含「肌」，尾部的 muscle 会再补一个「肌」
+    # （interspinalis muscle → 肌棘间肌），此处去重
+    if '肌' in muscle and mid.endswith('肌'):
+        mid = mid[:-1]
     if vis and 'duct' not in s:
         # 内脏血管：器官名在前，方位词后置（胃右动脉 / 肠系膜下静脉 / 肝固有动脉）
         # 管道类例外，保持前置：left hepatic duct → 左肝管（不是"肝左管"）
-        out = vis + g({'side'}) + g({'ord'}) + g({'loc'}) + mid + g({'m'})
+        out = vis + g({'side'}) + g({'ord'}) + g({'loc'}) + mid + muscle
     else:
-        out = g({'side'}) + g({'ord'}) + g({'loc'}) + mid + g({'m'})
+        out = g({'side'}) + g({'ord'}) + g({'loc'}) + mid + muscle
     return dedupe(out)
 
 def tr(s):
+    # 整词优先：整条短语若已在词表里，直接采用。
+    # 否则 "portion of tissue" 会被下面的 ' of ' 分支拆成 portion + tissue → 「组织部」。
+    if s in W2:
+        return simple(s)
     # "A of B with C" -> B与C的A
     if ' with ' in s:
         left, c = s.split(' with ', 1)
@@ -347,9 +401,17 @@ def tr(s):
         return dedupe(t + h) if (t and h) else None
     return simple(s)
 
+# 裸词条歧义：整条术语恰好等于这些词时取「整体结构」义，而非部件义。
+# 例：trunk 单独出现是人体躯干（FMA 的 trunk 概念），而 thyrocervical trunk 是甲状颈干。
+EXACT = {
+    'trunk': '躯干',
+}
+
 def translate(name):
     n = re.sub(r'\s+', ' ', name.lower().strip())
     n = re.sub(r'\s*\([^)]*\)', '', n)  # 去掉 "(in-vivo)" 一类限定语
+    if n in EXACT:
+        return EXACT[n]
     return tr(n)
 
 if len(sys.argv) > 1:
@@ -363,30 +425,50 @@ have = set(re.findall(r"(F[JM]A?\d+):", src.split('export const ANATOMY_ZH')[1])
 entries = [(p['id'], p['name']) for p in atlas['parts']] + [(c['id'], c['name']) for c in atlas['concepts']]
 todo = [(i, n) for i, n in entries if i not in have]
 
-# 可选：Wikidata 权威译名（先跑 scripts/fetch-wikidata-zh.py 生成），优先级高于规则生成
+# Wikidata 权威译名（先跑 scripts/fetch-wikidata-zh.py 生成）。
+# 策略由环境变量 ATLAS_WIKI_MODE 控制：
+#   arbitrate（默认）——仲裁制。一致→采用；规则放弃→采用（零风险增量）；
+#                      不一致→**保留规则译名**，仅进复核清单等人工裁决。
+#   override        ——旧行为：无条件用 Wikidata 覆盖规则译名。
+# 为什么不默认 override：实测 506 条生效覆盖里有 240 条与规则不同，其中混有确凿的
+# 概念错配（鼻泪管→泪器、小脑幕→小脑疝、下颌舌骨肌→颏舌肌）与英文直译语序
+# （颈深动脉→深颈动脉），无脑覆盖对译名质量是净负收益。详见 docs/wikidata-zh-report.md。
+WIKI_MODE = os.environ.get('ATLAS_WIKI_MODE', 'arbitrate')
 WIKI = {}
 wiki_path = os.path.join(ROOT, 'app/i18n/wikidata-zh.json')
 if os.path.exists(wiki_path):
     WIKI = json.load(open(wiki_path))
-    print('已加载 Wikidata 中文标签 %d 条（权威译名优先）' % len(WIKI))
+    print('已加载 Wikidata 中文标签 %d 条（覆盖策略：%s）' % (len(WIKI), WIKI_MODE))
 
-ok, fail, diffs = [], [], []
+ok, fail, diffs, rescued = [], [], [], []
 for i, n in todo:
     zh = translate(n)
     wiki = WIKI.get(i) if i.startswith('FMA') else None
     if wiki:
-        if zh and wiki != zh:
-            diffs.append((i, n, zh, wiki))   # 记录差异，便于发现系统性误译
-        zh = wiki                            # 权威译名覆盖规则译名
+        if zh is None:
+            zh = wiki                      # 规则放弃 → 权威译名是纯增量
+            rescued.append((i, n, wiki))
+        elif wiki != zh:
+            diffs.append((i, n, zh, wiki))
+            if WIKI_MODE == 'override':
+                zh = wiki                  # 旧行为：无条件覆盖
+            # arbitrate：保留规则译名，等人工裁决
     (ok if zh else fail).append((i, n, zh) if zh else (i, n))
 
 print('可翻译 %d / %d (%.0f%%)，放弃 %d' % (len(ok), len(todo), len(ok) / len(todo) * 100, len(fail)))
+print('Wikidata 仲裁：救回 %d 条（规则原本放弃）| 存疑差异 %d 条（已保留规则译名）'
+      % (len(rescued), len(diffs)))
 print('\n=== 随机样本 60 条 ===')
 random.seed(11)
 for i, n, zh in random.sample(ok, min(60, len(ok))):
     print('%-48s -> %s' % (n, zh))
+if rescued:
+    print('\n=== Wikidata 救回（规则原本放弃，前 30 条） ===')
+    for i, n, wiki in rescued[:30]:
+        print('%-40s -> %s' % (n, wiki))
 if diffs:
-    print('\n=== 规则译名 vs Wikidata 权威译名 差异（前 40 条，供人工审核） ===')
+    print('\n=== 规则译名 vs Wikidata 权威译名 存疑差异（前 40 条，供人工审核） ===')
+    print('    （存疑项默认保留规则译名；裁决后请写入 app/i18n/anatomy-zh.ts 手写覆盖）')
     for i, n, zh, wiki in diffs[:40]:
         print('%-40s 规则:%-14s 权威:%s' % (n, zh, wiki))
 
