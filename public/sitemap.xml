@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  本产品是单页应用（SPA），无前端路由、无独立子页面，
+  因此整个站点只有首页一个可索引 URL。
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://body3d.bitjian.cn/</loc>
+    <lastmod>2026-09-12</lastmod>
+  </url>
+</urlset>

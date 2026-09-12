@@ -117,11 +117,123 @@ Pages 提供**平台级通用中间件**，非全栈框架项目（本项目是 
 
 ---
 
-## 六、怎么选
+## 六、怎么选（已按实测更正）
 
 | 你的目标 | 做法 |
 |---|---|
-| 只想快速挡住境外访问 | 方案一（控制台加一条规则，1 分钟） |
-| 想要友好提示页 / 只拦部分路径 / 顺带放行港澳台或爬虫 | 方案二（middleware.js） |
+| 只让中国内地访问（Pages） | **方案二（已落地）**：根目录 `middleware.js`。⚠️ 已实测 Pages 控制台**没有**地域规则，别再找「方案一」了 |
+| 想保留 Google / Bing 收录 | 在 `middleware.js` 的 `BOT_ALLOW` 填 `['googlebot','bingbot']` |
+| 想连港澳台一起拦 | 在 `middleware.js` 的 `ALLOW` 里删掉 `'HK','MO','TW'` |
 | 其实是想"只让海外访问" | 改加速区域为「全球可用区（不含中国大陆）」，国内 401，免备案 |
-| 想省心又要风控精细化 | 方案一先兜底，后续有需要再上方案二 |
+| 想要图形化配置界面 | 迁到 **EdgeOne 本体（EO）** 用「区域管控」，但需接入站点 + 自备源站，成本明显更高 |
+
+---
+
+## 七、怎么验证（完整验证流程）
+
+### 第一层 · 离线逻辑回归（不联网、最快）
+
+```bash
+node scripts/test-middleware.mjs    # 29 项断言；有失败则退出码 1
+```
+
+覆盖：放行清单、大小写不敏感、海外拦截、geo 缺失兜底、403 响应形态、分块路径放行时不动响应头、matcher。
+
+**为什么必须要有这层**：`middleware.js` 是 `.js`，而 `tsconfig.json` 的 include 只有 `.ts/.tsx/.mts`，所以它**不在 `npm run check` 的检查范围内**；本地 `edgeone pages dev` 又取不到 geo（会走 `FAIL_OPEN` 全部放行），同样验证不了拦截逻辑。**改完中间件先跑这个。**
+
+### 第二层 · 线上双端验证（必须两边都测）
+
+> ⚠️ **只测大陆是无效验证** —— 中间件哪怕完全没加载，大陆也是 200。必须同时证明"海外被拦"。
+
+```bash
+# A. 大陆侧：期望 200（带时间戳绕开边缘缓存）
+curl -s -o /dev/null -w "%{http_code}\n" "https://body3d.bitjian.cn/?_=$(date +%s)"
+
+# B. 海外侧：多地域探测服务，期望 403
+RID=$(curl -s -H "Accept: application/json" \
+  "https://check-host.net/check-http?host=https%3A%2F%2Fbody3d.bitjian.cn%2F&max_nodes=8" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['request_id'])")
+sleep 12
+curl -s -H "Accept: application/json" "https://check-host.net/check-result/$RID"
+# 返回形如 [1, 0.02, 'OK', '403', '<ip>'] —— 注意第 4 个元素才是状态码，别看错
+
+# C. 确认 403 是"我们自己的拦截页"，而不是平台通用 403（关键一步）
+curl -s "https://api.microlink.io/?url=https%3A%2F%2Fbody3d.bitjian.cn%2F"
+# 检查 title=当前地区暂不可访问、description=Access restricted、
+# headers.cache-control=no-store, must-revalidate
+```
+
+**必做对照实验**：把 B 里的 host 换成 `https://example.com` 再跑一次，应返回 `200`。若对照也是 403，说明是探测服务自身的问题，不是你的配置。
+
+### 第三层 · 部署与观测
+
+- **部署确认**：Pages 控制台 → 构建部署，确认最新部署成功；`curl -I` 看 `last-modified` 是否为新部署时间。
+- **观测**：控制台「指标分析」→「访问区域分布」与状态码分布 —— 海外区域流量应消失、403 占比上升。
+- **日志**：拦截时会输出 `[geo-block] region=XX ip=... -> 403`，本地 `npx edgeone pages dev` 可直接看到。
+
+### 四个验证陷阱
+
+1. **边缘缓存**：测之前一定加随机查询串，并确认 `eo-cache-status: Cache Miss`，否则可能命中缓存绕过中间件。
+2. **只测单边**：必须"大陆 200 + 海外 403"成对验证，缺一不可。
+3. **VPN**：自己挂代理测会被拦，这是预期行为，别误判为故障。
+4. **港澳台**：当前 `ALLOW` 含 `HK/MO/TW`，这三地会正常放行。
+
+### 本次实测结果（2026-09-12 存档）
+
+| 探测源 | 地区 | 结果 |
+|---|---|---|
+| 本机直连（中国移动，武汉） | CN | **200** ✅ 首页 / `favicon.svg` / `/models/atlas.json` 均 200，`eo-cache-status: Cache Miss` |
+| check-host.net 8 节点 | AT / DE×2 / FI / IR×2 / NL / UA | **全部 403** ✅ |
+| 对照：example.com 同批节点 | AT / ES / SE / US | 200 ✅（证明探测链路正常、状态码解析无误） |
+| microlink（海外） | — | **403**，`title=当前地区暂不可访问`、`description=Access restricted`、`cache-control=no-store, must-revalidate` ✅ —— 确认为自有拦截页 |
+
+**结论：中间件已上线并生效，"大陆放行 + 海外拦截"双向验证通过。**
+
+---
+
+## 八、Google Search Console 接入（受地域规则影响，须特别处理）
+
+### 为什么普通接法会失败
+
+GSC 相关的抓取器**UA 里不含 `googlebot`**，因此**不会命中** `BOT_ALLOW`，而它们的抓取源在**海外** → 被地域规则 **403** → **验证与网址检查必然失败**。
+
+| 抓取器 | UA | 用途 |
+|---|---|---|
+| Google 站点验证 | `Mozilla/5.0 (compatible; Google-Site-Verification/1.0)` | 属性所有权验证（HTML 文件 / meta 标签方式都用它抓） |
+| 网址检查工具 | `Google-InspectionTool` | GSC「网址检查 / 测试实际网址」 |
+
+**已修复（2026-09-12）**：这两个 UA 已加入 `middleware.js` 的 `BOT_ALLOW`。它们与 `googlebot` 走**同一条 gated 判定**，落在 `/models/*` 下**仍返回 403**——即白名单只用于"让搜索引擎/验证器能访问公开页面"，**不放宽未来付费门控的防护**。
+
+> ⚠️ **顺序很重要：先把本次改动 push 部署，再去 GSC 做验证。** 部署前 `BOT_ALLOW` 里还没有这两个 UA，且 `robots.txt` / `sitemap.xml` 也还没上线。
+
+### 验证方式对比
+
+| 方式 | 需要什么 | 要改代码吗 | 评价 |
+|---|---|---|---|
+| **DNS TXT** | 在 `bitjian.cn` 的 DNS 加一条 TXT 记录 | ❌ 不需要 | **最干净**：不发 HTTP 请求，对地域拦截**天然免疫**；且可验证「网域」级属性（覆盖所有子域） |
+| **HTML 文件** | 把 GSC 给的 `google<随机串>.html` 放进 `public/`（随构建发布） | ❌ 不需要 | 推荐度次之；UA 已放行 |
+| meta 标签 | 把 `<meta name="google-site-verification" …>` 加进 `web/index.html` 的 `<head>` | ✅ 需要 | 会改动入口 HTML |
+| GA / GTM | 站点接入 GA 或 GTM | ✅ 需要 | 依赖额外脚本 |
+
+### 操作步骤
+
+1. **部署先行**：push `my-tweaks` 分支，确认 Pages 构建成功。
+2. **添加资源**：打开 <https://search.google.com/search-console> → 左上「添加资源」。
+   - 想**只覆盖本站** → 选「**网址前缀**」，填 `https://body3d.bitjian.cn/`
+   - 想**覆盖整个 `bitjian.cn` 及所有子域** → 选「**网域**」，填 `bitjian.cn`（此类型**只能**用 DNS TXT 验证）
+3. **完成验证**：按上表选一种方式。走 HTML 文件就把它放进 `public/` 后重新部署；走 DNS TXT 就把 GSC 给的 TXT 值加到 DNS。
+4. **提交 sitemap**：左侧「站点地图」→ 填 `sitemap.xml` → 提交。
+   （`robots.txt` 里已声明 `Sitemap: https://body3d.bitjian.cn/sitemap.xml`，GSC 通常会自动发现。）
+5. **做一次实测（关键验收）**：顶部搜索框输入 `https://body3d.bitjian.cn/` → 回车 → 点「**测试实际网址**」。
+   若显示抓取成功、能看到页面内容 → **证明爬虫白名单生效、地域规则没有挡住 Google**。
+6. **观察**：左侧「网页」报告看收录数（**单页应用预期只有首页 1 条**）；留意「已发现但未编入索引」属单页应用常见现象。
+
+### 把它当成地域规则的健康监控
+
+> 因为 Google 走海外 IP，**一旦白名单配置出问题，GSC 的「网页」报告会立刻出现抓取错误**。所以接入 GSC 不只是为了收录，它同时是你那套地域拦截规则的**免费监控**。
+
+### 两个细节
+
+- **Search Console 会定期复验**，验证记录 / 放行规则**必须长期保留**，不能"验完就撤"，否则会掉验证状态。
+- **收录需要时间**：sitemap 提交后通常 1–2 天开始抓，收录数稳定要几天到几周。
+- `BOT_ALLOW` 是 **UA 匹配**，UA 可伪造。这不影响当前（内容是公开的），但**将来上线付费门控时，门控必须走 Cookie 验签，绝不能用 UA 判断**。

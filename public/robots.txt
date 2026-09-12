@@ -1,0 +1,14 @@
+# robots.txt — https://body3d.bitjian.cn/
+#
+# 允许所有爬虫抓取站点页面内容。
+User-agent: *
+Allow: /
+
+# 禁止抓取 /models/ 目录：
+#   该目录下是 15 个 .bin 分片，合计约 90MB 二进制资源，供前端 fetch 后在浏览器端解压渲染，
+#   它们不是页面内容。允许抓取只会让爬虫白白消耗抓取预算（crawl budget）去下载这些巨型二进制，
+#   对收录没有任何帮助。页面本身位于 / 下，仍可正常抓取。
+#   （注：本规则是「礼貌性」约定，并非安全边界；真正的防盗链/门控应在服务端做。）
+Disallow: /models/
+
+Sitemap: https://body3d.bitjian.cn/sitemap.xml
